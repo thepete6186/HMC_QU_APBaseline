@@ -3,7 +3,7 @@
 """
 Recreation for baseline use
 """
-
+import numpy as np
 from sklearn.metrics import confusion_matrix
 from models import (
     SVM_train,
@@ -15,7 +15,6 @@ from models import (
     Resnet34_train,
     GridSearchCV,
 )
-import numpy as np
 import os
 import argparse
 
@@ -50,6 +49,11 @@ y_test = np.load(
         os.path.join(os.getcwd(), "DataSplits"), "y_test_" + args["view"] + ".npy"
     )
 )
+
+for i in range(len(x_train)):
+    print("Shape: ", x_train[i].shape)
+    print("y shape: ", y_train[i].shape)
+
 
 for f in range(0, 5):
     for i in range(len(MODEL)):
@@ -352,13 +356,18 @@ for f in range(0, 5):
                     ),
                     y_test[f],
                 )
-            elif MODEL[i] == "Resnet34":
-                best_parameters, best_model = Resnet34_train(
-                    x_train[f], y_train[f], REFIT[j]
-                )
-                score = best_model.predict(x_test[f])
+            elif MODEL[i] == "Resnet34":  
+                x_train_expand = {}
+                x_test_expand = {}
 
-                CM = confusion_matrix(y_test[f], score)
+                x_train_expand[f] = np.expand_dims(x_train[f], axis=-1)
+                x_test_expand[f] = np.expand_dims(x_test[f], axis=-1)
+
+
+                best_model = Resnet34_train(x_train_expand[f], y_train[f], x_train_expand[f].shape, REFIT[j])
+                score_probs = best_model.predict(x_test_expand[f])
+                score_preds = np.argmax(score_probs, axis=1)
+                CM = confusion_matrix(y_test[f], score_preds)
                 metrics = performance_metrics(CM)
 
                 # Save the results
@@ -378,7 +387,6 @@ for f in range(0, 5):
                 text_file.write("\nF1-Score:" + str(metrics[3]))
                 text_file.write("\nF2-Score:" + str(metrics[4]))
                 text_file.write("\nAccuracy:" + str(metrics[5]))
-                text_file.write("\nBest paramters:" + str(best_parameters))
                 text_file.close()
 
                 np.save(
@@ -393,7 +401,7 @@ for f in range(0, 5):
                         + str(f)
                         + ".npy",
                     ),
-                    score,
+                    score_preds,
                 )
                 np.save(
                     os.path.join(

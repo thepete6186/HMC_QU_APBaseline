@@ -3,7 +3,8 @@
 Recreation for baseline use. 
 """
 
-
+from xml.parsers.expat import model
+import numpy as np
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Convolution1D 
 from tensorflow.keras.layers import MaxPooling1D
@@ -17,8 +18,10 @@ from tensorflow.keras.layers import ReLU
 from tensorflow.keras import optimizers
 from scikeras.wrappers import KerasClassifier
 from sklearn.model_selection import GridSearchCV
-import numpy as np
 import tensorflow as tf
+import os
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
@@ -27,12 +30,11 @@ from sklearn.neighbors import KNeighborsClassifier
 
 Scoring = {'AUC':'roc_auc', 'Accuracy':'accuracy', 'Recall': 'recall', 'F1-Score': 'f1', 'Precision': 'precision'}
 
-def Resnet34():
+def Resnet34(input_shape): #input shape (104, 6) for 2CH and 4CH. (104, 12) for multi. 
 
-      model = Sequential(learning_rate = 1e-3)
+      model = Sequential()
 
-      model.add(Conv2D(filters = 64, kernel_size = 7, strides = 2, padding ='same',activation= 'relu', input_shape = (224, 224, 3)))
-      model.add(MaxPooling2D(pool_size = 3, strides = 2, padding ='same'))
+      model.add(Conv2D(filters = 64, kernel_size = 4, strides = 1, padding ='same',activation= 'relu', input_shape = input_shape))
       model.add(Residualblock(64, 2))
       model.add(Residualblock(64))
       model.add(Residualblock(64))
@@ -51,45 +53,49 @@ def Resnet34():
       model.add(Residualblock(512))
       model.add(GlobalAveragePooling2D())
       model.add(Dense(2, activation = 'softmax'))
-
+     
       model.summary()
-      opti = optimizers.Momentum(learning_rate = 1e-3, momentum = 0.9)
-      model.compile(loss = 'categorical_crossentropy', optimizer = opti, metrics = ['accuracy'])
-
+      opti = optimizers.SGD(learning_rate = 1e-4, momentum = 0.9)
+      model.compile(loss = 'sparse_categorical_crossentropy', optimizer = opti, metrics = ['accuracy'])      
       return model
 
 class Residualblock(tf.keras.layers.Layer):
     def __init__(self, filter_size, stride=1):
         super(Residualblock, self).__init__()
-        fpadding = 'same'
+        self.dottedcon = False
         if stride != 1:
-            fpadding = 'valid'
+            self.dottedcon = True
+
         self.conv_sequence = Sequential([
-            Conv2D(filters=filter_size, kernel_size=3, strides=stride, padding=fpadding),
+            Conv2D(filters=filter_size, kernel_size=3, strides=stride, padding='same'),
             BatchNormalization(),
             ReLU(),
             Conv2D(filters=filter_size, kernel_size=3, strides=1, padding='same'),
             BatchNormalization(),
-            ReLU()
         ])
+        
+        if self.dottedcon:
+            self.shortcut = Sequential([
+                Conv2D(filters=filter_size, kernel_size=1, strides=stride, padding='same'),
+                BatchNormalization()
+            ])
 
     def call(self, input):
         x = self.conv_sequence(input)
-        if input.shape[-1] == x.shape[-1]:
-         x += input
-        return x
+        if not self.dottedcon:
+            x += input
+        else:
+            x += self.shortcut(input)
+        return ReLU()(x)
 
-def Resnet34_train(X_train, y_train, REFIT):
+def Resnet34_train(X_train, y_train, input_shape, REFIT):
     
-    def resnet34_model():
-       return Resnet34()
+    model = Resnet34(input_shape)
+    monitor_losss = tf.keras.callbacks.ModelCheckpoint('best_model.h5', monitor='loss', verbose=0, save_best_only=True, mode='min')
+
+    model.fit(X_train, y_train, epochs = 75, batch_size = 32, callbacks=[monitor_losss])
     
-    model = KerasClassifier(model = resnet34_model, verbose = 0) 
-    param_grid = dict(epochs = [25, 50, 75, 100])
-    grid_search = GridSearchCV(estimator = model, n_jobs = 1, param_grid = param_grid, scoring = Scoring, refit = REFIT, cv = 5)
-    grid_search = grid_search.fit(X_train, y_train)
-    
-    return grid_search.best_estimator_, grid_search.best_params_
+    return model
    
 
 def cnn1D_model(inpt_dim, outpt_dim, kernel_size = 5, filter_size = 8, learning_rate = 1e-1):
