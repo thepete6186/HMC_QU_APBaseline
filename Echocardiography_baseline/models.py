@@ -20,6 +20,7 @@ from scikeras.wrappers import KerasClassifier
 from sklearn.model_selection import GridSearchCV
 import tensorflow as tf
 import os
+import time
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
@@ -91,9 +92,29 @@ class Residualblock(tf.keras.layers.Layer):
 def Resnet34_train(X_train, y_train, input_shape, REFIT):
     
     model = Resnet34(input_shape)
-    monitor_losss = tf.keras.callbacks.ModelCheckpoint('best_model.h5', monitor='loss', verbose=0, save_best_only=True, mode='min')
+
+    unique_name = f'temp_best_model_{int(time.time())}.h5'
+    
+    monitor_losss = tf.keras.callbacks.ModelCheckpoint(
+        unique_name, 
+        monitor='loss', 
+        verbose=0, 
+        save_best_only=True, 
+        mode='min'
+    )
 
     model.fit(X_train, y_train, epochs = 75, batch_size = 32, callbacks=[monitor_losss])
+
+    try:
+        model.load_weights(unique_name)
+    except:
+        pass 
+
+    if os.path.exists(unique_name):
+        try:
+            os.remove(unique_name)
+        except:
+            pass 
     
     return model
    
